@@ -1,0 +1,115 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+model user {
+  id            String        @id    @default(uuid())
+  username      String 
+  profile       String?       
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+}
+
+enum ModelTypeEnum {
+  Man
+  Woman
+  Others
+}
+
+enum EthnecityEnum {
+      Black
+      White
+      Asian_American             @map("Asian American")
+      East_Asian                 @map("East Asian")
+      South_East_Asian           @map("South East Asian")
+      South_Asian                @map("South Asian")
+      Middle_Eastern             @map("Middle Eastern")
+      Pacific
+      Hispanic
+} 
+
+enum EyeColorEnum {
+  Brown
+  Blue
+  Hazel
+  Gray
+} 
+
+enum ModelTrainingStatusEnum {
+  Pending
+  generated
+  Failed
+}
+
+model Model  {
+  id                 String  @id                  @default(uuid())
+  name               String       
+  type               ModelTypeEnum      
+  age                Int
+  ethnecity          EthnecityEnum      
+  eyeColor           EyeColorEnum      
+  bald               Boolean  
+  triggerWord        String?
+  tensorPath         String?
+  trainingStatus     ModelTrainingStatusEnum   @default(Pending)
+  userId             String
+  trainingImages     TrainingImages[] 
+  outputImages       OutputImages[]      
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  falAiRequestId     String?                    //for future use
+  @@index([falAiRequestId])
+}
+
+model TrainingImages  {
+  id            String  @id    @default(uuid())
+  imageUrl      String
+  modelId       String
+  model         Model          @relation(fields:[modelId],references:[id])
+}
+//prompts 
+
+enum OutputImagesStatusEnum {
+  Pending
+  generated
+  Failed
+}
+
+//images 
+model OutputImages {
+    id                          String                      @id      @default(uuid())
+    imageUrl                    String                               @default("")
+    modelId                     String
+    prompt                      String
+    status                      OutputImagesStatusEnum               @default(Pending)
+    userId                      String                    
+    model                       Model                                @relation(fields:[modelId],references:[id])
+    falAiRequestId              String?                   //         for future use
+    createdAt                   DateTime                             @default(now())
+    updatedAt                   DateTime                             @updatedAt   
+    @@index([falAiRequestId])
+}
+
+//packs 
+model Packs {
+  id            String             @id      @default(uuid())
+  name          String
+  prompt       PackPrompts[]
+}
+
+
+
+model PackPrompts {
+  id            String      @id      @default(uuid())
+  prompt        String
+  packId        String  
+  packs         Packs                @relation(fields:[packId],references:[id])
+}
+ 

@@ -1,5 +1,5 @@
 import prismaClient  from "db";
-export class BaseModel {
+export  class BaseModel {
     
     constructor() {}
     private async generateImage(prompt: string,tensorPath:string) {}

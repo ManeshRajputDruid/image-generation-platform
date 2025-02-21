@@ -60,20 +60,15 @@ model Model  {
   tensorPath         String?
   trainingStatus     ModelTrainingStatusEnum   @default(Pending)
   userId             String
-  trainingImages     TrainingImages[] 
+  zipUrl             String
   outputImages       OutputImages[]      
   createdAt          DateTime                     @default(now())
   updatedAt          DateTime                     @updatedAt
   falAiRequestId     String?                    //for future use
   @@index([falAiRequestId])
+
 }
 
-model TrainingImages  {
-  id            String  @id    @default(uuid())
-  imageUrl      String
-  modelId       String
-  model         Model          @relation(fields:[modelId],references:[id])
-}
 //prompts 
 
 enum OutputImagesStatusEnum {

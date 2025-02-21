@@ -1,13 +1,97 @@
 import express from "express";
-const app = express();
+import prismaClient from "db";
 const PORT = process.env.PORT || 8000;
 const fal_api_key = process.env.FAL_KEY;
-import {TrainModel,GenerateImage,GenerateImagesFromPack,} from "common/types";
-import prismaClient from "db";
-import { s3,write,S3Client } from "bun";
-app.use(express.json());
+// const AWS = require("aws-sdk");
 
+import {
+  TrainModel,
+  GenerateImage,
+  GenerateImagesFromPack,
+} from "common/types";
+import { FalAiModel } from "./models/FalAiModel";
+const app = express();
+app.use(express.json());
+import dotenv from "dotenv";
+const falAiModel = new FalAiModel();
 const USER_ID = "2";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import {
+  S3Client,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+dotenv.config();
+
+// import { Worker, Queue } from "bullmq";
+// import redis from "ioredis";
+// import fs from "fs";
+// import archiver from "archiver";
+// import path from "path";
+// import { Stream } from "stream";
+
+// const redisConnection = new redis({
+//   host: process.env.REDIS_HOST,
+//   port: 6379,
+// });
+
+// const zipQueue = new Queue("zipTasks", {
+//   connection: redisConnection,
+// });
+
+// const Zipworker = new Worker("ziptaks", async (job) => {
+//   const { filenames, bucketname, outputurl } = job.data;
+//   const passthroughstream = new Stream.PassThrough();
+//   const archive = archiver("zip", { zlib: { level: 9 } });
+//   archiver.pipe(archive);
+
+//   for(filekey of file) {
+//     const filestram=s3
+//     .GetObjectCommand(bucketname, files)
+//     .createReadStream();
+//     archive.append(filestram, { name: filekey });
+//     await new Promise((resolve) => {
+//       archive.finalize(resolve);
+//     });
+
+const s3 = new S3Client({
+  region: process.env.REGION,
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY!,
+    secretAccessKey: process.env.S3_SECRET_KEY!,
+  },
+});
+// const s3_2=new AWS.S3({
+//   accessKeyId: process.env.S3_ACCESS_KEY!,
+//   secretAccessKey: process.env.S3_SECRET_KEY!,
+//   region: process.env.REGION,
+// })
+
+
+app.get("/get-presigned-url", async (req, res) => {
+  console.log(S3Client);
+  const key = `models/${Date.now()}_${Math.random()}.zip` ;
+  console.log(key);
+
+  const command = new PutObjectCommand({
+    Bucket: process.env.S3_BUCKET_NAME,
+    Key: `models/${Date.now()}_${Math.random()}.zip`,
+    ContentType: "application/zip",
+  });
+  const url = await getSignedUrl(s3, command, { expiresIn: 3600 });
+
+  res.json({
+    url,
+    key
+  });
+});
+
+
+
+
+
+
+
 app.post("/ai/training", async (req, res) => {
   const parsedBody = TrainModel.parse(req.body);
   if (!parsedBody) {
@@ -16,6 +100,13 @@ app.post("/ai/training", async (req, res) => {
     });
     return;
   }
+  const { request_id, response_url } = await falAiModel.trainModel(
+    parsedBody.zipUrl,
+    parsedBody.name
+  );
+  res.json({
+    message: "Training started successfully",
+  });
   const data = await prismaClient.model.create({
     data: {
       name: parsedBody.name,
@@ -25,6 +116,7 @@ app.post("/ai/training", async (req, res) => {
       eyeColor: parsedBody.eyeColor,
       bald: parsedBody.bald,
       userId: USER_ID,
+      zipUrl: parsedBody.zipUrl,
     },
   });
   res.json({
@@ -40,13 +132,29 @@ app.post("/ai/generate", async (req, res) => {
     });
     return;
   }
+  const model = await prismaClient.model.findUnique({
+    where: {
+      id: parsedBody.modelId,
+    },
+  });
+  if (!model || !model.tensorPath) {
+    res.status(500).json({
+      message: "Model not found or tensor path missing",
+    });
+    return;
+  }
 
+  const { request_id, response_url } = await falAiModel.generateImage(
+    parsedBody.prompt,
+    model?.tensorPath
+  );
   const data = await prismaClient.outputImages.create({
     data: {
       prompt: parsedBody.prompt,
       modelId: parsedBody.modelId,
       userId: USER_ID,
       imageUrl: "",
+      falAiRequestId: request_id,
     },
   });
   res.json({
@@ -67,13 +175,17 @@ app.post("/pack/generate", async (req, res) => {
       packId: parsedBody.packId,
     },
   });
+let requestIds:{request_id:string}[]=await Promise.all(prompts.map( async (prompt)=>{  
+  return await falAiModel.generateImage(prompt.prompt,parsedBody.modelId);
+})) ;
 
   const images = await prismaClient.outputImages.createManyAndReturn({
-    data: prompts.map((prompt) => ({
+    data: prompts.map((prompt,index) => ({
       prompt: prompt.prompt,
       userId: USER_ID,
       modelId: parsedBody.modelId,
       imageUrl: "",
+      falAiRequestId: requestIds[index].request_id,
     })),
   });
   res.json({
@@ -123,9 +235,9 @@ app.post("/fal-ai/webhook/train", async (req, res) => {
     },
     data: {
       trainingStatus: "generated",
-      tensorPath: req.body.tensor_path
-    }
-});
+      tensorPath: req.body.tensor_path,
+    },
+  });
   res.json({
     message: "webhook received",
   });
@@ -135,13 +247,13 @@ app.post("/fal-ai/webhook/image", async (req, res) => {
   const imageId = req.body.image_id;
   await prismaClient.outputImages.updateMany({
     where: {
-      falAiRequestId: requestId  
+      falAiRequestId: requestId,
     },
     data: {
       status: "generated",
       imageUrl: req.body.image_Url,
-    }
-  })
+    },
+  });
   res.json({
     message: "webhook received",
   });

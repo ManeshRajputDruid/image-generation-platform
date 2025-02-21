@@ -7,6 +7,12 @@
       }
     ]
   },
+  "baseUrl": ".",
+  "paths": {
+    "@/*": ["./src/*"]
+  }
+  "compilerOptions": {
+  },
   "include": [
     "**/*.ts",
     "**/*.tsx",
